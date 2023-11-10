@@ -1,22 +1,59 @@
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using Random = UnityEngine.Random;
 
 public class QuizController : MonoBehaviour
 {
-    [SerializeField] private QuestionSO question;
+    [Header("Questions")]
+    [SerializeField] private List<QuestionSO> questions;
+
+    private QuestionSO _currentQuestion;
+
+    [Header("Buttons")]
     [SerializeField] private Button[] buttons;
+
+    [Header("Question TMP")]
     [SerializeField] private TextMeshProUGUI questionTMP;
 
     [Header("Button Sprites")]
     [SerializeField] private Sprite defaultAnswerSprite;
     [SerializeField] private Sprite correctAnswerSprite;
 
+    [Header("Slider")]
+    [SerializeField] private Slider progressBar;
+
+    [Header("Timer")]
     [SerializeField] private Timer timer;
+
+    [Header("Score")]
+    [SerializeField] private TextMeshProUGUI scoreTMP;
+
+    private ScoreManager _scoreManager;
+
+    //States
+    private bool _isAnsweringQuestion;
+    private bool _hasEarlyAnswered;
+    private bool _isGameOver;
+
+    public bool IsGameOver { get => _isGameOver; }
+
+    private void Awake()
+    {
+        //Set Progress bar
+        progressBar.maxValue = questions.Count;
+
+        //Set score
+        _scoreManager = scoreTMP.GetComponent<ScoreManager>();
+        scoreTMP.text = "Score: 0%";
+
+        _isAnsweringQuestion = false;
+        _isGameOver = false;
+        _isAnsweringQuestion = true;
+        timer.CountdownForQuestion();
+    }
 
     private void Start()
     {
@@ -25,46 +62,96 @@ public class QuizController : MonoBehaviour
 
     private void Update()
     {
-        
+        if (_isAnsweringQuestion)
+        {
+            if (timer.IsTimeUp)
+            {
+                _isAnsweringQuestion = false;
+                timer.CountdownForAnswerFeedback();
+
+                if (!_hasEarlyAnswered)
+                {
+                    ShowCorrectAnswer(false);
+                    UpdateScore();
+                }
+                else
+                {
+                    _hasEarlyAnswered = false;
+                }
+            }
+
+            if (_hasEarlyAnswered)
+            {
+                timer.CancelTimer();
+            }
+        }
+        else
+        {
+            if (timer.IsTimeUp)
+            {
+                _isAnsweringQuestion = true;
+                timer.CountdownForQuestion();
+                GetNextQuestion();
+            }
+        }
     }
 
     private void DisplayQuestion()
     {
-        questionTMP.text = question.Question;
+        questionTMP.text = _currentQuestion.Question;
 
         for (int i = 0; i < buttons.Length; i++)
         {
             TextMeshProUGUI buttonTMP = buttons[i].GetComponentInChildren<TextMeshProUGUI>();
-            buttonTMP.text = question.Answers[i];
+            buttonTMP.text = _currentQuestion.Answers[i];
         }
     }
 
     public void OnAnswerSelected(int selectedButtonIndex)
     {
-        Image correctButtonImage;
-        int correctAnswerIndex = question.CorrectAnswerIndex;
+        _hasEarlyAnswered = true;
 
-        if (selectedButtonIndex == question.CorrectAnswerIndex)
+        if (selectedButtonIndex == _currentQuestion.CorrectAnswerIndex)
         {
-            questionTMP.text = "Correct !";
+            _scoreManager.IncrementCorrectAnswer();
 
-            //Change button sprite
-            correctButtonImage = buttons[correctAnswerIndex].GetComponent<Image>();
-            correctButtonImage.sprite = correctAnswerSprite;
+            ShowCorrectAnswer(true);
         }
         else
         {
-            //Change question text to correct answer
-            questionTMP.text = "Sorry, the correct answer was: \n"
-                + question.Answers[correctAnswerIndex];
-
-            //Change button sprite
-            correctButtonImage = buttons[correctAnswerIndex].GetComponent<Image>();
-            correctButtonImage.sprite = correctAnswerSprite;
+            ShowCorrectAnswer(false);
         }
 
-        //Disable all buttons after user select answer
+        UpdateScore();
+    }
+
+    private void UpdateScore()
+    {
+        int score = _scoreManager.CalculateScore();
+        scoreTMP.text = $"Score: {score}%";
+    }
+
+    private void ShowCorrectAnswer(bool isAnswerTrue)
+    {
+        //Disable all buttons
         SetButtonState(false);
+
+        int correctAnswerIndex = _currentQuestion.CorrectAnswerIndex;
+
+        //Change question text based on answer correctness
+        if (isAnswerTrue)
+        {
+            questionTMP.text = "Correct !";
+        }
+        else
+        {
+            questionTMP.text = "Sorry, the correct answer was: \n"
+                + _currentQuestion.Answers[correctAnswerIndex];
+        }
+
+        //Change button sprite
+        Image correctButtonImage = buttons[correctAnswerIndex].GetComponent<Image>();
+        correctButtonImage.sprite = correctAnswerSprite;
     }
 
     private void SetButtonState(bool isInteractable)
@@ -83,8 +170,33 @@ public class QuizController : MonoBehaviour
 
     private void GetNextQuestion()
     {
-        SetButtonState(true);
-        SetDefaultButtonSprite();
-        DisplayQuestion();
+        if (questions.Count > 0)
+        {
+            _scoreManager.IncrementAnsweredQuestions();
+            progressBar.value = _scoreManager.NumberOfAnsweredQuestions;
+
+            GetRandomQuestion();
+            SetButtonState(true);
+            SetDefaultButtonSprite();
+            DisplayQuestion();
+        }
+        else
+        {
+            _isGameOver = true;
+        }
+    }
+
+    private void GetRandomQuestion()
+    {
+        if (questions.Contains(_currentQuestion))
+        {
+            questions.Remove(_currentQuestion);
+        }
+
+        if (questions.Count == 0) return;
+
+        int nextQuestionIndex = Random.Range(0, questions.Count - 1);
+
+        _currentQuestion = questions[nextQuestionIndex];
     }
 }
